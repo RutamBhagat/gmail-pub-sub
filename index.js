@@ -64,7 +64,7 @@ app.post("/webhook/gmail", (req, res) => {
   console.log("Gmail Webhook Received");
   res.status(200).send("ok");
 
-  console.log(req.body);
+  console.log("Received body:", req.body);
 
   const { message } = req.body;
 
@@ -73,12 +73,24 @@ app.post("/webhook/gmail", (req, res) => {
     return;
   }
 
-  // Decode the Base64 encoded message data
-  const encodedMessage = message.data;
-  const decodedMessage = JSON.parse(
-    Buffer.from(encodedMessage, "base64").toString("utf-8")
-  );
-  console.log("Decoded Message: ", decodedMessage);
+  try {
+    // Decode the Base64 encoded message data
+    const encodedMessage = message.data;
+    const decodedString = Buffer.from(encodedMessage, "base64").toString(
+      "utf-8"
+    );
+    console.log("Decoded string:", decodedString);
+
+    // Only try to parse as JSON if the string looks like JSON
+    if (decodedString.startsWith("{") || decodedString.startsWith("[")) {
+      const decodedMessage = JSON.parse(decodedString);
+      console.log("Decoded JSON Message:", decodedMessage);
+    } else {
+      console.log("Decoded message is not JSON");
+    }
+  } catch (error) {
+    console.error("Error processing message:", error);
+  }
 });
 
 app.listen(PORT, () => {
