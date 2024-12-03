@@ -1,16 +1,16 @@
 require("dotenv").config();
 
-const express = require("express");
-const bodyParser = require("body-parser");
+import { authenticate, initialize, use } from "passport";
 
-const passport = require("passport");
-const { Strategy: GoogleStrategy } = require("passport-google-oauth20");
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import express from "express";
+import { json } from "body-parser";
 
 const PORT = process.env.PORT;
 const app = express();
 
 app.use(
-  bodyParser.json({
+  json({
     limit: "50mb",
     verify: (req, _, buf) => {
       req.rawBody = buf;
@@ -18,9 +18,9 @@ app.use(
   })
 );
 
-app.use(passport.initialize());
+app.use(initialize());
 
-passport.use(
+use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
@@ -38,7 +38,7 @@ passport.use(
 
 app.get(
   "/auth/google",
-  passport.authenticate("google", {
+  authenticate("google", {
     scope: [
       "profile",
       "email",
@@ -51,7 +51,7 @@ app.get(
 
 app.get(
   "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login" }),
+  authenticate("google", { failureRedirect: "/login" }),
   (req, res) => {
     res.redirect("/");
   }
