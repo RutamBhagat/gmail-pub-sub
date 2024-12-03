@@ -93,6 +93,12 @@ app.post("/webhook/gmail", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log("Server is running on port", PORT);
-});
+const host = "0.0.0.0";
+app
+  .listen(PORT, host, () => {
+    console.log(`Server is running on http://${host}:${PORT}`);
+  })
+  .on("error", (err) => {
+    console.error("Server failed to start:", err);
+    process.exit(1);
+  });

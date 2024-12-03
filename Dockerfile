@@ -21,5 +21,9 @@ COPY . .
 RUN chown -R bun:bun .
 USER bun
 ENV NODE_ENV=production
-EXPOSE 4000
+EXPOSE 4000/tcp
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:4000/ || exit 1
+
 ENTRYPOINT [ "bun", "index.js" ]
