@@ -291,6 +291,46 @@ const startWatchingHandler: RequestHandler = async (req, res) => {
 
 app.get("/start-watching", startWatchingHandler);
 
+// Health check endpoint supporting GET and HEAD
+app
+  .route("/health")
+  .get((req, res) => {
+    // Log request details
+    console.log({
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      path: req.path,
+      headers: {
+        userAgent: req.get("user-agent"),
+        correlationId: req.get("x-correlation-id"),
+        host: req.get("host"),
+      },
+      ip: req.ip,
+    });
+
+    res.status(200).json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      version: process.env.npm_package_version || "1.0.0",
+    });
+  })
+  .head((req, res) => {
+    // Log request details
+    console.log({
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      path: req.path,
+      headers: {
+        userAgent: req.get("user-agent"),
+        correlationId: req.get("x-correlation-id"),
+        host: req.get("host"),
+      },
+      ip: req.ip,
+    });
+
+    res.status(200).end();
+  });
+
 app
   .listen(PORT, "0.0.0.0", () => {
     consola.success(`Server is running on http://0.0.0.0:${PORT}`);
