@@ -9,6 +9,7 @@ import express from "express";
 import { google } from "googleapis";
 import passport from "passport";
 import session from "express-session";
+import { getGlobalVar, setGlobalVar } from "./file-utils";
 
 // Constants and Configuration
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -83,14 +84,6 @@ app.use(passport.session());
 // Google APIs and Services Initialization
 const gmail = google.gmail("v1");
 
-// Global Variables
-let accessTokenStore: string = "";
-let refreshTokenStore: string = "";
-let historyId: string = "";
-let emailAddress: string = "";
-let threadId: string = "";
-let messageDetails = {};
-
 // Passport Google OAuth Strategy Configuration
 /**
  * Google OAuth Strategy configuration
@@ -157,12 +150,12 @@ const refreshAccessToken = async (): Promise<string> => {
     );
 
     oauth2Client.setCredentials({
-      refresh_token: refreshTokenStore,
+      refresh_token: getGlobalVar("refreshTokenStore"),
     });
 
     const { credentials } = await oauth2Client.refreshAccessToken();
-    accessTokenStore = credentials.access_token || "";
-    return accessTokenStore;
+    setGlobalVar("accessTokenStore", credentials.access_token || "");
+    return getGlobalVar("accessTokenStore");
   } catch (error) {
     consola.error("Error refreshing access token:", error);
     throw error;
@@ -196,13 +189,13 @@ const watchInbox = async () => {
       },
       {
         headers: {
-          Authorization: `Bearer ${accessTokenStore}`,
+          Authorization: `Bearer ${getGlobalVar("accessTokenStore")}`,
         },
       }
     );
     consola.success("Watching Inbox:", res.data);
     if (res.data.historyId) {
-      historyId = res.data.historyId;
+      setGlobalVar("historyId", res.data.historyId);
     }
   } catch (error) {
     consola.error("Error watching inbox:", error);
@@ -226,7 +219,7 @@ const listMessages = async (): Promise<string | null> => {
           },
           {
             headers: {
-              Authorization: `Bearer ${accessTokenStore}`,
+              Authorization: `Bearer ${getGlobalVar("accessTokenStore")}`,
             },
           }
         );
@@ -292,11 +285,11 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
         },
         {
           headers: {
-            Authorization: `Bearer ${accessTokenStore}`,
+            Authorization: `Bearer ${getGlobalVar("accessTokenStore")}`,
           },
         }
       );
-      messageDetails = res.data;
+      setGlobalVar("messageDetails", res.data);
       return res.data;
     } catch (error: unknown) {
       if (isGoogleApiError(error) && error.response?.status === 401) {
@@ -312,7 +305,7 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
             },
           }
         );
-        messageDetails = res.data;
+        setGlobalVar("messageDetails", res.data);
         return res.data;
       }
       throw error;
@@ -331,7 +324,7 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
  */
 const startWatchingHandler: RequestHandler = async (req, res) => {
   try {
-    if (!req.user || !accessTokenStore) {
+    if (!req.user || !getGlobalVar("accessTokenStore")) {
       res
         .status(401)
         .send("User not authenticated or access token not available.");
@@ -370,8 +363,8 @@ app.post("/webhook/gmail", async (req, res) => {
       return;
     }
 
-    emailAddress = decodedData.emailAddress;
-    historyId = decodedData.historyId;
+    setGlobalVar("emailAddress", decodedData.emailAddress);
+    setGlobalVar("historyId", decodedData.historyId);
     consola.info("Decoded JSON Message:", decodedData);
 
     const messageId = await listMessages();
@@ -406,8 +399,8 @@ app.get(
   (req, res) => {
     if (req.user && "accessToken" in req.user && "refreshToken" in req.user) {
       const user = req.user as GoogleProfile;
-      accessTokenStore = user.accessToken || "";
-      refreshTokenStore = user.refreshToken || "";
+      setGlobalVar("accessTokenStore", user.accessToken || "");
+      setGlobalVar("refreshTokenStore", user.refreshToken || "");
     }
     res.redirect("/");
   }
