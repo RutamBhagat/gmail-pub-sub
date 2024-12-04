@@ -206,6 +206,7 @@ app.post("/webhook/gmail", async (req, res) => {
 
     if (messageId) {
       const messageDetails = await getMessageDetails(messageId);
+      consola.log("Message Details: ", messageDetails);
     }
   } catch (error) {
     consola.error("Error processing message:", error); // Improved logging
