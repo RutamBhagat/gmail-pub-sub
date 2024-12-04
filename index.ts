@@ -223,7 +223,6 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
       }
     );
     messageDetails = res.data;
-    consola.success("Fetched Message Details:", res.data);
     return res.data;
   } catch (error) {
     consola.error("Error getting message details:", error);
