@@ -10,12 +10,20 @@ import { google } from "googleapis";
 import passport from "passport";
 import session from "express-session";
 
+/**
+ * Represents a user's data structure returned from Google OAuth
+ */
 interface User {
   id?: string;
   displayName?: string;
   emails?: { value: string; verified?: boolean }[];
 }
 
+/**
+ * Data structure for Gmail push notification payloads
+ * @property {string} emailAddress - The email address receiving the notification
+ * @property {string} historyId - Gmail's history ID for tracking changes
+ */
 interface GmailNotificationData {
   emailAddress: string;
   historyId: string;
@@ -71,6 +79,14 @@ let emailAddress: string = "";
 let threadId: string = "";
 let messageDetails = {};
 
+/**
+ * Google OAuth Strategy configuration
+ * Handles the OAuth flow and user profile creation
+ * @param {string} accessToken - OAuth access token from Google
+ * @param {string} refreshToken - OAuth refresh token from Google
+ * @param {object} profile - User profile data from Google
+ * @param {Function} done - Passport.js callback function
+ */
 passport.use(
   new GoogleStrategy(
     {
@@ -212,6 +228,14 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
   }
 };
 
+/**
+ * Gmail webhook endpoint handler
+ * Processes incoming Gmail push notifications:
+ * 1. Validates the incoming message data
+ * 2. Decodes the base64 encoded payload
+ * 3. Updates email tracking information
+ * 4. Fetches new message details if available
+ */
 app.post("/webhook/gmail", async (req, res) => {
   try {
     consola.info("Gmail Webhook Received");
@@ -244,6 +268,11 @@ app.post("/webhook/gmail", async (req, res) => {
   }
 });
 
+/**
+ * Request handler for initiating Gmail inbox watching
+ * Validates user authentication and starts the Gmail push notification subscription
+ * @throws {Error} If user is not authenticated or watch operation fails
+ */
 const startWatchingHandler: RequestHandler = async (req, res) => {
   try {
     if (!req.user || !accessTokenStore) {
@@ -272,10 +301,11 @@ app
   });
 
 /**
- * Decodes a base64 encoded string into a JSON object.
- * Used for processing Gmail push notification payloads.
- * @param encodedString - The base64 encoded string to decode
- * @returns {object|null} The decoded JSON object or null if decoding fails
+ * Base64 decoder utility for Gmail push notification payloads
+ * Handles the decoding and JSON parsing of Gmail's base64 encoded messages
+ * @param {string|object} encodedString - Base64 encoded string to decode
+ * @returns {GmailNotificationData|null} Decoded notification data or null if decoding fails
+ * @throws {Error} If JSON parsing fails
  */
 function decodeBase64ToJson(
   encodedString:
