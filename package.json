@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "bun --hot run index.js"
+    "dev": "bun --hot run index.ts"
   },
   "keywords": [],
   "author": "",
