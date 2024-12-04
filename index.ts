@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { type RequestHandler } from "express";
+
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bodyParser from "body-parser";
 import consola from "consola";
@@ -19,9 +21,20 @@ interface GmailNotificationData {
   historyId: string;
 }
 
+interface GoogleProfile extends User {
+  accessToken?: string;
+  refreshToken?: string;
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody?: Buffer;
+  }
+}
+
+declare module "express-session" {
+  interface SessionData {
+    user?: GoogleProfile;
   }
 }
 
@@ -66,11 +79,14 @@ passport.use(
       callbackURL: GOOGLE_CALLBACK_URL,
     },
     (accessToken, refreshToken, profile, done) => {
-      consola.info("Access Token: ", accessToken);
-      consola.info("Refresh Token: ", refreshToken);
-      consola.info("Profile: ", profile);
-      passport.serializeUser((user: Express.User, done) => done(null, user));
-      passport.deserializeUser((user: User, done) => done(null, user));
+      const user: GoogleProfile = {
+        id: profile.id,
+        displayName: profile.displayName,
+        emails: profile.emails,
+        accessToken,
+        refreshToken,
+      };
+      done(null, user);
     }
   )
 );
@@ -94,7 +110,12 @@ app.get(
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => res.redirect("/")
+  (req, res) => {
+    if (req.user && "accessToken" in req.user) {
+      accessTokenStore = (req.user as GoogleProfile).accessToken || "";
+    }
+    res.redirect("/");
+  }
 );
 
 app.get("/", (req, res) => {
@@ -192,16 +213,16 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
 };
 
 app.post("/webhook/gmail", async (req, res) => {
-  consola.info("Gmail Webhook Received");
-  res.status(200).send("ok");
-
-  const { message } = req.body;
-  if (!message || !message.data) {
-    consola.warn("No message data found");
-    return;
-  }
-
   try {
+    consola.info("Gmail Webhook Received");
+    res.status(200).send("ok");
+
+    const { message } = req.body;
+    if (!message?.data) {
+      consola.warn("No message data found");
+      return;
+    }
+
     const decodedData = decodeBase64ToJson(message.data);
     if (!decodedData || !decodedData.emailAddress || !decodedData.historyId) {
       consola.warn("Decoded message is missing emailAddress or historyId.");
@@ -219,20 +240,27 @@ app.post("/webhook/gmail", async (req, res) => {
       consola.log("Message Details: ", messageDetails);
     }
   } catch (error) {
-    consola.error("Error processing message:", error);
+    consola.error("Error in webhook handler:", error);
   }
 });
 
-app.get("/start-watching", (req, res) => {
-  if (req.user && accessTokenStore) {
-    watchInbox();
+const startWatchingHandler: RequestHandler = async (req, res) => {
+  try {
+    if (!req.user || !accessTokenStore) {
+      res
+        .status(401)
+        .send("User not authenticated or access token not available.");
+      return;
+    }
+    await watchInbox();
     res.send("Started watching inbox");
-  } else {
-    res
-      .status(401)
-      .send("User not authenticated or access token not available.");
+  } catch (error) {
+    consola.error("Error starting watch:", error);
+    res.status(500).send("Failed to start watching inbox");
   }
-});
+};
+
+app.get("/start-watching", startWatchingHandler);
 
 app
   .listen(PORT, "0.0.0.0", () => {
