@@ -262,6 +262,7 @@ app.post("/webhook/gmail", async (req, res) => {
     if (messageId) {
       const messageDetails = await getMessageDetails(messageId);
       consola.log("Message Details: ", messageDetails);
+      res.status(200).send({ messageDetails });
     }
   } catch (error) {
     consola.error("Error in webhook handler:", error);
