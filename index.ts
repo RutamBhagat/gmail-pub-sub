@@ -10,6 +10,17 @@ import { google } from "googleapis";
 import passport from "passport";
 import session from "express-session";
 
+// Constants and Configuration
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
+const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat";
+const GMAIL_TOPIC_NAME =
+  process.env.GMAIL_TOPIC_NAME ||
+  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME";
+
+// Type Definitions and Interfaces
 /**
  * Represents a user's data structure returned from Google OAuth
  */
@@ -46,15 +57,7 @@ declare module "express-session" {
   }
 }
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
-const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat";
-const GMAIL_TOPIC_NAME =
-  process.env.GMAIL_TOPIC_NAME ||
-  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME";
-
+// App and Middleware Configuration
 const app = express();
 
 app.use(
@@ -71,14 +74,17 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Google APIs and Services Initialization
 const gmail = google.gmail("v1");
 
+// Global Variables
 let accessTokenStore: string = "";
 let historyId: string = "";
 let emailAddress: string = "";
 let threadId: string = "";
 let messageDetails = {};
 
+// Passport Google OAuth Strategy Configuration
 /**
  * Google OAuth Strategy configuration
  * Handles the OAuth flow and user profile creation
@@ -110,34 +116,31 @@ passport.use(
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user: unknown, done) => done(null, user as User));
 
-app.get(
-  "/auth/google",
-  passport.authenticate("google", {
-    scope: [
-      "profile",
-      "email",
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.labels",
-    ],
-  })
-);
-
-app.get(
-  "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => {
-    if (req.user && "accessToken" in req.user) {
-      accessTokenStore = (req.user as GoogleProfile).accessToken || "";
-    }
-    res.redirect("/");
+// Utility Functions
+/**
+ * Base64 decoder utility for Gmail push notification payloads
+ * Handles the decoding and JSON parsing of Gmail's base64 encoded messages
+ * @param {string|object} encodedString - Base64 encoded string to decode
+ * @returns {GmailNotificationData|null} Decoded notification data or null if decoding fails
+ * @throws {Error} If JSON parsing fails
+ */
+function decodeBase64ToJson(
+  encodedString:
+    | WithImplicitCoercion<string>
+    | { [Symbol.toPrimitive](hint: "string"): string }
+): GmailNotificationData | null {
+  try {
+    const decodedString = Buffer.from(encodedString, "base64").toString(
+      "utf-8"
+    );
+    return JSON.parse(decodedString);
+  } catch (error) {
+    consola.error("Error decoding base64 to JSON:", error);
+    return null;
   }
-);
+}
 
-app.get("/", (req, res) => {
-  res.send({ authenticated: !!req.user, user: req.user });
-});
-
+// Gmail API Interaction Functions
 /**
  * Initiates Gmail push notifications for the authenticated user's inbox.
  * Sets up a watch on the inbox using Gmail API and stores the historyId
@@ -228,6 +231,28 @@ const getMessageDetails = async (messageId: string): Promise<object | null> => {
   }
 };
 
+// Request Handlers
+/**
+ * Request handler for initiating Gmail inbox watching
+ * Validates user authentication and starts the Gmail push notification subscription
+ * @throws {Error} If user is not authenticated or watch operation fails
+ */
+const startWatchingHandler: RequestHandler = async (req, res) => {
+  try {
+    if (!req.user || !accessTokenStore) {
+      res
+        .status(401)
+        .send("User not authenticated or access token not available.");
+      return;
+    }
+    await watchInbox();
+    res.send("Started watching inbox");
+  } catch (error) {
+    consola.error("Error starting watch:", error);
+    res.status(500).send("Failed to start watching inbox");
+  }
+};
+
 /**
  * Gmail webhook endpoint handler
  * Processes incoming Gmail push notifications:
@@ -269,26 +294,34 @@ app.post("/webhook/gmail", async (req, res) => {
   }
 });
 
-/**
- * Request handler for initiating Gmail inbox watching
- * Validates user authentication and starts the Gmail push notification subscription
- * @throws {Error} If user is not authenticated or watch operation fails
- */
-const startWatchingHandler: RequestHandler = async (req, res) => {
-  try {
-    if (!req.user || !accessTokenStore) {
-      res
-        .status(401)
-        .send("User not authenticated or access token not available.");
-      return;
+// Route Definitions
+app.get(
+  "/auth/google",
+  passport.authenticate("google", {
+    scope: [
+      "profile",
+      "email",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.labels",
+    ],
+  })
+);
+
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  (req, res) => {
+    if (req.user && "accessToken" in req.user) {
+      accessTokenStore = (req.user as GoogleProfile).accessToken || "";
     }
-    await watchInbox();
-    res.send("Started watching inbox");
-  } catch (error) {
-    consola.error("Error starting watch:", error);
-    res.status(500).send("Failed to start watching inbox");
+    res.redirect("/");
   }
-};
+);
+
+app.get("/", (req, res) => {
+  res.send({ authenticated: !!req.user, user: req.user });
+});
 
 app.get("/start-watching", startWatchingHandler);
 
@@ -332,6 +365,7 @@ app
     res.status(200).end();
   });
 
+// Server Initialization
 app
   .listen(PORT, "0.0.0.0", () => {
     consola.success(`Server is running on http://0.0.0.0:${PORT}`);
@@ -340,26 +374,3 @@ app
     consola.error("Server failed to start:", err);
     process.exit(1);
   });
-
-/**
- * Base64 decoder utility for Gmail push notification payloads
- * Handles the decoding and JSON parsing of Gmail's base64 encoded messages
- * @param {string|object} encodedString - Base64 encoded string to decode
- * @returns {GmailNotificationData|null} Decoded notification data or null if decoding fails
- * @throws {Error} If JSON parsing fails
- */
-function decodeBase64ToJson(
-  encodedString:
-    | WithImplicitCoercion<string>
-    | { [Symbol.toPrimitive](hint: "string"): string }
-): GmailNotificationData | null {
-  try {
-    const decodedString = Buffer.from(encodedString, "base64").toString(
-      "utf-8"
-    );
-    return JSON.parse(decodedString);
-  } catch (error) {
-    consola.error("Error decoding base64 to JSON:", error);
-    return null;
-  }
-}
