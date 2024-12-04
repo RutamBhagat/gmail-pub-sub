@@ -14,26 +14,28 @@ interface User {
   emails?: { value: string; verified?: boolean }[];
 }
 
+interface GmailNotificationData {
+  emailAddress: string;
+  historyId: string;
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody?: Buffer;
   }
 }
 
-// --- Configuration ---
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
-const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat"; // Use a strong secret in production
+const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat";
 const GMAIL_TOPIC_NAME =
   process.env.GMAIL_TOPIC_NAME ||
-  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME"; // Replace with your actual topic name
-// --- End of Configuration ---
+  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME";
 
 const app = express();
 
-// --- Middleware ---
 app.use(
   bodyParser.json({
     limit: "50mb",
@@ -48,17 +50,14 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-// --- Gmail API Setup ---
 const gmail = google.gmail("v1");
 
-// --- In-Memory Storage --- (For simplicity – reconsider for production)
 let accessTokenStore: string = "";
 let historyId: string = "";
 let emailAddress: string = "";
 let threadId: string = "";
 let messageDetails = {};
 
-// --- Passport.js Configuration ---
 passport.use(
   new GoogleStrategy(
     {
@@ -67,7 +66,7 @@ passport.use(
       callbackURL: GOOGLE_CALLBACK_URL,
     },
     (accessToken, refreshToken, profile, done) => {
-      consola.info("Access Token: ", accessToken); // Log with consola
+      consola.info("Access Token: ", accessToken);
       consola.info("Refresh Token: ", refreshToken);
       consola.info("Profile: ", profile);
       passport.serializeUser((user: Express.User, done) => done(null, user));
@@ -79,7 +78,6 @@ passport.use(
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user: unknown, done) => done(null, user as User));
 
-// --- Routes ---
 app.get(
   "/auth/google",
   passport.authenticate("google", {
@@ -103,7 +101,11 @@ app.get("/", (req, res) => {
   res.send({ authenticated: !!req.user, user: req.user });
 });
 
-// --- Gmail API Interaction Functions ---
+/**
+ * Initiates Gmail push notifications for the authenticated user's inbox.
+ * Sets up a watch on the inbox using Gmail API and stores the historyId
+ * for tracking changes.
+ */
 const watchInbox = async () => {
   try {
     const res = await gmail.users.watch(
@@ -122,20 +124,24 @@ const watchInbox = async () => {
     );
     consola.success("Watching Inbox:", res.data);
     if (res.data.historyId) {
-      historyId = res.data.historyId; // Store historyId
+      historyId = res.data.historyId;
     }
   } catch (error) {
     consola.error("Error watching inbox:", error);
   }
 };
 
-const listMessages = async () => {
+/**
+ * Retrieves the most recent message from the user's Gmail inbox.
+ * @returns {Promise<string|null>} The ID of the most recent message or null if no messages found
+ */
+const listMessages = async (): Promise<string | null> => {
   try {
     const res = await gmail.users.messages.list(
       {
         userId: "me",
         q: "is:inbox",
-        maxResults: 1, // Get the most recent message
+        maxResults: 1,
       },
       {
         headers: {
@@ -147,7 +153,7 @@ const listMessages = async () => {
     if (res.data.messages && res.data.messages.length > 0) {
       const lastMessageId = res.data.messages[0].id;
       consola.info("Last Message ID:", lastMessageId);
-      return lastMessageId;
+      return lastMessageId ?? null;
     } else {
       consola.warn("No messages found in the inbox.");
       return null;
@@ -158,7 +164,12 @@ const listMessages = async () => {
   }
 };
 
-const getMessageDetails = async (messageId: string) => {
+/**
+ * Fetches detailed information about a specific Gmail message.
+ * @param messageId - The unique identifier of the Gmail message
+ * @returns {Promise<object|null>} The message details or null if retrieval fails
+ */
+const getMessageDetails = async (messageId: string): Promise<object | null> => {
   try {
     const res = await gmail.users.messages.get(
       {
@@ -171,7 +182,7 @@ const getMessageDetails = async (messageId: string) => {
         },
       }
     );
-    messageDetails = res.data; // Store the entire message details
+    messageDetails = res.data;
     consola.success("Fetched Message Details:", res.data);
     return res.data;
   } catch (error) {
@@ -180,14 +191,13 @@ const getMessageDetails = async (messageId: string) => {
   }
 };
 
-// --- Webhook and Subsequent Actions ---
 app.post("/webhook/gmail", async (req, res) => {
-  consola.info("Gmail Webhook Received"); // Improved logging
+  consola.info("Gmail Webhook Received");
   res.status(200).send("ok");
 
   const { message } = req.body;
   if (!message || !message.data) {
-    consola.warn("No message data found"); // Improved logging
+    consola.warn("No message data found");
     return;
   }
 
@@ -195,11 +205,11 @@ app.post("/webhook/gmail", async (req, res) => {
     const decodedData = decodeBase64ToJson(message.data);
     if (!decodedData || !decodedData.emailAddress || !decodedData.historyId) {
       consola.warn("Decoded message is missing emailAddress or historyId.");
-      return; // Stop processing if these are missing
+      return;
     }
 
     emailAddress = decodedData.emailAddress;
-    historyId = decodedData.historyId; // Update historyId
+    historyId = decodedData.historyId;
     consola.info("Decoded JSON Message:", decodedData);
 
     const messageId = await listMessages();
@@ -209,15 +219,13 @@ app.post("/webhook/gmail", async (req, res) => {
       consola.log("Message Details: ", messageDetails);
     }
   } catch (error) {
-    consola.error("Error processing message:", error); // Improved logging
+    consola.error("Error processing message:", error);
   }
 });
 
-// --- Start Watching Inbox After Authentication ---
-// This ensures watchInbox is called after a user is authenticated and we have an access token.
 app.get("/start-watching", (req, res) => {
   if (req.user && accessTokenStore) {
-    watchInbox(); // Call watchInbox when the user is logged in.
+    watchInbox();
     res.send("Started watching inbox");
   } else {
     res
@@ -226,22 +234,26 @@ app.get("/start-watching", (req, res) => {
   }
 });
 
-// --- Start Server ---
 app
   .listen(PORT, "0.0.0.0", () => {
-    consola.success(`Server is running on http://0.0.0.0:${PORT}`); // Use consola
+    consola.success(`Server is running on http://0.0.0.0:${PORT}`);
   })
   .on("error", (err) => {
-    consola.error("Server failed to start:", err); // Use consola
+    consola.error("Server failed to start:", err);
     process.exit(1);
   });
 
-// Helper function
+/**
+ * Decodes a base64 encoded string into a JSON object.
+ * Used for processing Gmail push notification payloads.
+ * @param encodedString - The base64 encoded string to decode
+ * @returns {object|null} The decoded JSON object or null if decoding fails
+ */
 function decodeBase64ToJson(
   encodedString:
     | WithImplicitCoercion<string>
     | { [Symbol.toPrimitive](hint: "string"): string }
-) {
+): GmailNotificationData | null {
   try {
     const decodedString = Buffer.from(encodedString, "base64").toString(
       "utf-8"
