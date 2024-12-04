@@ -1,2 +1,5 @@
 node_modules/
 .env
+responses.md
+extraction_email_content.json
+extraction_to_be_done.md

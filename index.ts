@@ -6,7 +6,13 @@ import express from "express";
 import passport from "passport";
 import session from "express-session";
 
-const PORT = process.env.PORT;
+declare module "http" {
+  interface IncomingMessage {
+    rawBody?: Buffer;
+  }
+}
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const app = express();
 
 /**
@@ -40,8 +46,16 @@ app.use(passport.session());
 passport.use(
   new GoogleStrategy(
     {
-      clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientID:
+        process.env.GOOGLE_CLIENT_ID ||
+        (() => {
+          throw new Error("GOOGLE_CLIENT_ID is not defined");
+        })(),
+      clientSecret:
+        process.env.GOOGLE_CLIENT_SECRET ||
+        (() => {
+          throw new Error("GOOGLE_CLIENT_SECRET is not defined");
+        })(),
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
     },
     (accessToken, refreshToken, profile, done) => {
@@ -58,8 +72,8 @@ passport.serializeUser((user, done) => {
   done(null, user);
 });
 
-passport.deserializeUser((user, done) => {
-  done(null, user);
+passport.deserializeUser((user: Express.User, done) => {
+  return done(null, user);
 });
 
 /**
