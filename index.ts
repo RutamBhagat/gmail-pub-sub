@@ -45,6 +45,12 @@ interface GoogleProfile extends User {
   refreshToken?: string;
 }
 
+interface GoogleApiError {
+  response?: {
+    status: number;
+  };
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody?: Buffer;
@@ -79,6 +85,7 @@ const gmail = google.gmail("v1");
 
 // Global Variables
 let accessTokenStore: string = "";
+let refreshTokenStore: string = "";
 let historyId: string = "";
 let emailAddress: string = "";
 let threadId: string = "";
@@ -140,6 +147,37 @@ function decodeBase64ToJson(
   }
 }
 
+// Add this new utility function
+const refreshAccessToken = async (): Promise<string> => {
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET,
+      GOOGLE_CALLBACK_URL
+    );
+
+    oauth2Client.setCredentials({
+      refresh_token: refreshTokenStore,
+    });
+
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    accessTokenStore = credentials.access_token || "";
+    return accessTokenStore;
+  } catch (error) {
+    consola.error("Error refreshing access token:", error);
+    throw error;
+  }
+};
+
+function isGoogleApiError(error: unknown): error is GoogleApiError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof (error as any).response?.status === "number"
+  );
+}
+
 // Gmail API Interaction Functions
 /**
  * Initiates Gmail push notifications for the authenticated user's inbox.
@@ -177,25 +215,60 @@ const watchInbox = async () => {
  */
 const listMessages = async (): Promise<string | null> => {
   try {
-    const res = await gmail.users.messages.list(
-      {
-        userId: "me",
-        q: "is:inbox",
-        maxResults: 1,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessTokenStore}`,
-        },
+    try {
+      // Try with current access token first
+      try {
+        const res = await gmail.users.messages.list(
+          {
+            userId: "me",
+            q: "is:inbox",
+            maxResults: 1,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${accessTokenStore}`,
+            },
+          }
+        );
+        consola.success("Listed Messages:", res.data);
+        if (res.data.messages && res.data.messages.length > 0) {
+          const lastMessageId = res.data.messages[0].id;
+          consola.info("Last Message ID:", lastMessageId);
+          return lastMessageId ?? null;
+        } else {
+          consola.warn("No messages found in the inbox.");
+          return null;
+        }
+      } catch (error: unknown) {
+        if (isGoogleApiError(error) && error.response?.status === 401) {
+          const newToken = await refreshAccessToken();
+          const res = await gmail.users.messages.list(
+            {
+              userId: "me",
+              q: "is:inbox",
+              maxResults: 1,
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${newToken}`,
+              },
+            }
+          );
+          consola.success("Listed Messages:", res.data);
+          if (res.data.messages && res.data.messages.length > 0) {
+            const lastMessageId = res.data.messages[0].id;
+            consola.info("Last Message ID:", lastMessageId);
+            return lastMessageId ?? null;
+          } else {
+            consola.warn("No messages found in the inbox.");
+            return null;
+          }
+        } else {
+          throw error;
+        }
       }
-    );
-    consola.success("Listed Messages:", res.data);
-    if (res.data.messages && res.data.messages.length > 0) {
-      const lastMessageId = res.data.messages[0].id;
-      consola.info("Last Message ID:", lastMessageId);
-      return lastMessageId ?? null;
-    } else {
-      consola.warn("No messages found in the inbox.");
+    } catch (error) {
+      consola.error("Error listing messages:", error);
       return null;
     }
   } catch (error) {
@@ -211,19 +284,39 @@ const listMessages = async (): Promise<string | null> => {
  */
 const getMessageDetails = async (messageId: string): Promise<object | null> => {
   try {
-    const res = await gmail.users.messages.get(
-      {
-        userId: "me",
-        id: messageId,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessTokenStore}`,
+    try {
+      const res = await gmail.users.messages.get(
+        {
+          userId: "me",
+          id: messageId,
         },
+        {
+          headers: {
+            Authorization: `Bearer ${accessTokenStore}`,
+          },
+        }
+      );
+      messageDetails = res.data;
+      return res.data;
+    } catch (error: unknown) {
+      if (isGoogleApiError(error) && error.response?.status === 401) {
+        const newToken = await refreshAccessToken();
+        const res = await gmail.users.messages.get(
+          {
+            userId: "me",
+            id: messageId,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${newToken}`,
+            },
+          }
+        );
+        messageDetails = res.data;
+        return res.data;
       }
-    );
-    messageDetails = res.data;
-    return res.data;
+      throw error;
+    }
   } catch (error) {
     consola.error("Error getting message details:", error);
     return null;
@@ -311,8 +404,10 @@ app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
   (req, res) => {
-    if (req.user && "accessToken" in req.user) {
-      accessTokenStore = (req.user as GoogleProfile).accessToken || "";
+    if (req.user && "accessToken" in req.user && "refreshToken" in req.user) {
+      const user = req.user as GoogleProfile;
+      accessTokenStore = user.accessToken || "";
+      refreshTokenStore = user.refreshToken || "";
     }
     res.redirect("/");
   }
