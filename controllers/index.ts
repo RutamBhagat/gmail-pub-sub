@@ -67,26 +67,31 @@ async function getLatestThreadId(accessToken: string) {
   return threadId;
 }
 
+async function fetchAndValidateThread(threadId: string) {
+  const threadData = await getThread(threadId);
+  if (!threadData) {
+    throw new Error("Thread not found");
+  }
+
+  const validationResult = emailThreadSchema.safeParse(threadData);
+  if (!validationResult.success) {
+    const errors = validationResult.error.errors
+      .map((e) => e.message)
+      .join(",");
+    throw new Error(`Invalid thread data: ${errors}`);
+  }
+  return validationResult.data.messages;
+}
+
 async function getThreadData(accessToken: string) {
   try {
     const threadId = await getLatestThreadId(accessToken);
-    const threadData = await getThread(threadId);
-    if (!threadData) {
-      throw new Error("Thread not found");
-    }
-
-    return threadData;
+    return await fetchAndValidateThread(threadId);
   } catch (error) {
     if (isGoogleApiError(error) && error.response?.status === 401) {
       const newToken = await refreshAccessToken();
       const threadId = await getLatestThreadId(newToken);
-      const threadData = await getThread(threadId);
-
-      if (!threadData) {
-        throw new Error("Thread not found");
-      }
-
-      return threadData;
+      return await fetchAndValidateThread(threadId);
     }
     throw error;
   }
@@ -102,17 +107,7 @@ export const webhookHandler: RequestHandler = async (req, res) => {
     }
 
     const accessToken = getGlobalVar("accessTokenStore");
-    const threadData = await getThreadData(accessToken);
-
-    const validationResult = emailThreadSchema.safeParse(threadData);
-    if (!validationResult.success) {
-      const errors = validationResult.error.errors
-        .map((e) => e.message)
-        .join(",");
-      res.status(400).json(errors);
-      return;
-    }
-    const emailThread = validationResult.data.messages;
+    const emailThread = await getThreadData(accessToken);
     const extractedData = extractEmailData(emailThread);
     res.status(200).json(extractedData);
     return;
