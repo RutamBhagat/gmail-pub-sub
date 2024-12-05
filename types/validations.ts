@@ -70,3 +70,10 @@ export const emailThreadSchema = z.object({
   historyId: z.string(),
   messages: z.array(emailSchema),
 });
+
+export const zodPurchaseOrderSchema = z.object({
+  isPurchaseOrder: z.boolean(),
+  confidence: z.enum(["HIGH", "MEDIUM", "LOW"]),
+});
+
+export type isPurchaseOrder = z.infer<typeof zodPurchaseOrderSchema>;

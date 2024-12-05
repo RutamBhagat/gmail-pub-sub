@@ -10,10 +10,9 @@ import { getGlobalVar, setGlobalVar } from "../utils/file-utils";
 
 import type { GoogleProfile } from "../types";
 import type { RequestHandler } from "express";
+import axios from "axios";
 import consola from "consola";
-import { emailThreadSchema } from "../types/validations";
-
-// Added import
+import { emailThreadSchema, type isPurchaseOrder } from "../types/validations";
 
 // Request Handlers
 export const homeHandler: RequestHandler = (req, res) => {
@@ -109,7 +108,13 @@ export const webhookHandler: RequestHandler = async (req, res) => {
     const accessToken = getGlobalVar("accessTokenStore");
     const emailThread = await getThreadData(accessToken);
     const extractedData = extractEmailData(emailThread);
-    res.status(200).json(extractedData);
+    const {
+      data: { isPurchaseOrder },
+    } = await axios.post<isPurchaseOrder>(
+      `${process.env.NEXT_JS_SERVER}/api/purchase-order/classify`,
+      extractedData
+    );
+    res.status(200).json(isPurchaseOrder);
     return;
   } catch (error) {
     consola.error("Error in webhook handler:", error);
