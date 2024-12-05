@@ -1,7 +1,5 @@
 import "dotenv/config";
-
 import { type RequestHandler } from "express";
-
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bodyParser from "body-parser";
 import consola from "consola";
@@ -11,31 +9,13 @@ import passport from "passport";
 import session from "express-session";
 import { getGlobalVar, setGlobalVar } from "./file-utils";
 
-// Constants and Configuration
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
-const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat";
-const GMAIL_TOPIC_NAME =
-  process.env.GMAIL_TOPIC_NAME ||
-  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME";
-
-// Type Definitions and Interfaces
-/**
- * Represents a user's data structure returned from Google OAuth
- */
+// Types & Interfaces
 interface User {
   id?: string;
   displayName?: string;
   emails?: { value: string; verified?: boolean }[];
 }
 
-/**
- * Data structure for Gmail push notification payloads
- * @property {string} emailAddress - The email address receiving the notification
- * @property {string} historyId - Gmail's history ID for tracking changes
- */
 interface GmailNotificationData {
   emailAddress: string;
   historyId: string;
@@ -64,8 +44,19 @@ declare module "express-session" {
   }
 }
 
-// App and Middleware Configuration
+// Constants
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
+const SESSION_SECRET = process.env.SESSION_SECRET || "keyboard cat";
+const GMAIL_TOPIC_NAME =
+  process.env.GMAIL_TOPIC_NAME ||
+  "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME";
+
+// App & Middleware Setup
 const app = express();
+const gmail = google.gmail("v1");
 
 app.use(
   bodyParser.json({
@@ -81,18 +72,7 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Google APIs and Services Initialization
-const gmail = google.gmail("v1");
-
-// Passport Google OAuth Strategy Configuration
-/**
- * Google OAuth Strategy configuration
- * Handles the OAuth flow and user profile creation
- * @param {string} accessToken - OAuth access token from Google
- * @param {string} refreshToken - OAuth refresh token from Google
- * @param {object} profile - User profile data from Google
- * @param {Function} done - Passport.js callback function
- */
+// Passport Configuration
 passport.use(
   new GoogleStrategy(
     {
@@ -118,11 +98,8 @@ passport.deserializeUser((user: unknown, done) => done(null, user as User));
 
 // Utility Functions
 /**
- * Base64 decoder utility for Gmail push notification payloads
- * Handles the decoding and JSON parsing of Gmail's base64 encoded messages
- * @param {string|object} encodedString - Base64 encoded string to decode
- * @returns {GmailNotificationData|null} Decoded notification data or null if decoding fails
- * @throws {Error} If JSON parsing fails
+ * Decodes and parses Gmail push notification payload from base64
+ * @param encodedString - Base64 encoded notification data
  */
 function decodeBase64ToJson(
   encodedString:
@@ -140,7 +117,9 @@ function decodeBase64ToJson(
   }
 }
 
-// Add this new utility function
+/**
+ * Refreshes the Google OAuth access token using the stored refresh token
+ */
 const refreshAccessToken = async (): Promise<string> => {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -162,20 +141,18 @@ const refreshAccessToken = async (): Promise<string> => {
   }
 };
 
-function isGoogleApiError(error: unknown): error is GoogleApiError {
+const isGoogleApiError = (error: unknown): error is GoogleApiError => {
   return (
     typeof error === "object" &&
     error !== null &&
     "response" in error &&
     typeof (error as any).response?.status === "number"
   );
-}
+};
 
-// Gmail API Interaction Functions
+// Gmail API Functions
 /**
- * Initiates Gmail push notifications for the authenticated user's inbox.
- * Sets up a watch on the inbox using Gmail API and stores the historyId
- * for tracking changes.
+ * Initiates Gmail push notifications subscription
  */
 const watchInbox = async () => {
   try {
@@ -203,74 +180,8 @@ const watchInbox = async () => {
 };
 
 /**
- * Retrieves the most recent message from the user's Gmail inbox.
- * @returns {Promise<string|null>} The ID of the most recent message or null if no messages found
+ * Fetches an email thread by its ID with token refresh handling
  */
-const listMessages = async (): Promise<string | null> => {
-  try {
-    try {
-      // Try with current access token first
-      try {
-        const res = await gmail.users.messages.list(
-          {
-            userId: "me",
-            q: "is:inbox",
-            maxResults: 1,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${getGlobalVar("accessTokenStore")}`,
-            },
-          }
-        );
-        consola.success("Listed Messages:", res.data);
-        if (res.data.messages && res.data.messages.length > 0) {
-          const lastMessageId = res.data.messages[0].id;
-          consola.info("Last Message ID:", lastMessageId);
-          return lastMessageId ?? null;
-        } else {
-          consola.warn("No messages found in the inbox.");
-          return null;
-        }
-      } catch (error: unknown) {
-        if (isGoogleApiError(error) && error.response?.status === 401) {
-          const newToken = await refreshAccessToken();
-          const res = await gmail.users.messages.list(
-            {
-              userId: "me",
-              q: "is:inbox",
-              maxResults: 1,
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${newToken}`,
-              },
-            }
-          );
-          consola.success("Listed Messages:", res.data);
-          if (res.data.messages && res.data.messages.length > 0) {
-            const lastMessageId = res.data.messages[0].id;
-            consola.info("Last Message ID:", lastMessageId);
-            return lastMessageId ?? null;
-          } else {
-            consola.warn("No messages found in the inbox.");
-            return null;
-          }
-        } else {
-          throw error;
-        }
-      }
-    } catch (error) {
-      consola.error("Error listing messages:", error);
-      return null;
-    }
-  } catch (error) {
-    consola.error("Error listing messages:", error);
-    return null;
-  }
-};
-
-// Add this after the getMessageDetails function
 const getThread = async (threadId: string): Promise<object | null> => {
   try {
     try {
@@ -311,11 +222,19 @@ const getThread = async (threadId: string): Promise<object | null> => {
 };
 
 // Request Handlers
-/**
- * Request handler for initiating Gmail inbox watching
- * Validates user authentication and starts the Gmail push notification subscription
- * @throws {Error} If user is not authenticated or watch operation fails
- */
+const homeHandler: RequestHandler = (req, res) => {
+  res.send({ authenticated: !!req.user, user: req.user });
+};
+
+const authCallbackHandler: RequestHandler = (req, res) => {
+  if (req.user && "accessToken" in req.user && "refreshToken" in req.user) {
+    const user = req.user as GoogleProfile;
+    setGlobalVar("accessTokenStore", user.accessToken || "");
+    setGlobalVar("refreshTokenStore", user.refreshToken || "");
+  }
+  res.redirect("/");
+};
+
 const startWatchingHandler: RequestHandler = async (req, res) => {
   try {
     if (!req.user || !getGlobalVar("accessTokenStore")) {
@@ -332,7 +251,6 @@ const startWatchingHandler: RequestHandler = async (req, res) => {
   }
 };
 
-// Replace the two webhook handlers with this single correctly typed version
 const webhookHandler: RequestHandler = async (req, res) => {
   try {
     consola.info("Gmail Webhook Received");
@@ -375,12 +293,15 @@ const webhookHandler: RequestHandler = async (req, res) => {
       }
 
       const threadId = messagesResponse.data.messages[0].threadId;
+      setGlobalVar("threadId", threadId);
+
       const threadData = await getThread(threadId);
       if (!threadData) {
         res.status(404).send("Thread not found");
         return;
       }
 
+      setGlobalVar("threadData", threadData);
       consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
       res.status(200).json(threadData);
     } catch (error: unknown) {
@@ -411,6 +332,7 @@ const webhookHandler: RequestHandler = async (req, res) => {
           return;
         }
 
+        setGlobalVar("threadData", threadData);
         consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
         res.status(200).json(threadData);
         return;
@@ -423,10 +345,28 @@ const webhookHandler: RequestHandler = async (req, res) => {
   }
 };
 
-// Register the webhook route
-app.post("/webhook/gmail", webhookHandler);
+const healthCheckHandler: RequestHandler = (req, res) => {
+  console.log({
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    path: req.path,
+    headers: {
+      userAgent: req.get("user-agent"),
+      correlationId: req.get("x-correlation-id"),
+      host: req.get("host"),
+    },
+    ip: req.ip,
+  });
 
-// Route Definitions
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || "1.0.0",
+  });
+};
+
+// Routes
+app.get("/", homeHandler);
 app.get(
   "/auth/google",
   passport.authenticate("google", {
@@ -439,65 +379,14 @@ app.get(
     ],
   })
 );
-
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => {
-    if (req.user && "accessToken" in req.user && "refreshToken" in req.user) {
-      const user = req.user as GoogleProfile;
-      setGlobalVar("accessTokenStore", user.accessToken || "");
-      setGlobalVar("refreshTokenStore", user.refreshToken || "");
-    }
-    res.redirect("/");
-  }
+  authCallbackHandler
 );
-
-app.get("/", (req, res) => {
-  res.send({ authenticated: !!req.user, user: req.user });
-});
-
 app.get("/start-watching", startWatchingHandler);
-
-// Health check endpoint supporting GET and HEAD
-app
-  .route("/health")
-  .get((req, res) => {
-    // Log request details
-    console.log({
-      timestamp: new Date().toISOString(),
-      method: req.method,
-      path: req.path,
-      headers: {
-        userAgent: req.get("user-agent"),
-        correlationId: req.get("x-correlation-id"),
-        host: req.get("host"),
-      },
-      ip: req.ip,
-    });
-
-    res.status(200).json({
-      status: "healthy",
-      timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || "1.0.0",
-    });
-  })
-  .head((req, res) => {
-    // Log request details
-    console.log({
-      timestamp: new Date().toISOString(),
-      method: req.method,
-      path: req.path,
-      headers: {
-        userAgent: req.get("user-agent"),
-        correlationId: req.get("x-correlation-id"),
-        host: req.get("host"),
-      },
-      ip: req.ip,
-    });
-
-    res.status(200).end();
-  });
+app.post("/webhook/gmail", webhookHandler);
+app.route("/health").get(healthCheckHandler).head(healthCheckHandler);
 
 // Server Initialization
 app

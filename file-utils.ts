@@ -3,7 +3,9 @@ import * as path from "path";
 
 const VARS_FILE = path.join(__dirname, "global-vars.json");
 
-// Initialize file if it doesn't exist
+/**
+ * Initialize global variables file with default values
+ */
 if (!fs.existsSync(VARS_FILE)) {
   const initialData = {
     accessTokenStore: "",
@@ -11,7 +13,7 @@ if (!fs.existsSync(VARS_FILE)) {
     historyId: "",
     emailAddress: "",
     threadId: "",
-    messageDetails: {},
+    threadData: {},
   };
   fs.writeFileSync(VARS_FILE, JSON.stringify(initialData, null, 4));
 }
