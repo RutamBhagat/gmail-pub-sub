@@ -31,3 +31,12 @@ declare module "express-session" {
     user?: GoogleProfile;
   }
 }
+
+export const ALLOWED_EMAIL_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/jpg",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+];

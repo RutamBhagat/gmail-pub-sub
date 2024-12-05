@@ -1,5 +1,6 @@
 import {
   decodeBase64ToJson,
+  extractEmailData,
   getThread,
   gmail,
   isGoogleApiError,
@@ -11,6 +12,7 @@ import { getGlobalVar, setGlobalVar } from "../utils/file-utils";
 import type { GoogleProfile } from "../types";
 import type { RequestHandler } from "express";
 import consola from "consola";
+import { emailThreadSchema } from "../types/validations";
 
 // Request Handlers
 export const homeHandler: RequestHandler = (req, res) => {
@@ -123,9 +125,20 @@ export const webhookHandler: RequestHandler = async (req, res) => {
           return;
         }
 
+        const validationResult = emailThreadSchema.safeParse(threadData);
+        if (!validationResult.success) {
+          const errors = validationResult.error.errors
+            .map((e) => e.message)
+            .join(",");
+          res.status(400).json(errors);
+          return;
+        }
+
         setGlobalVar("threadData", threadData);
         consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
-        res.status(200).json(threadData);
+        const emailThread = validationResult.data.messages;
+        const extractedData = extractEmailData(emailThread);
+        res.status(200).json(extractedData);
         return;
       }
       throw error;

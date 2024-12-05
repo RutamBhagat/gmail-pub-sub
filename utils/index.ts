@@ -4,7 +4,11 @@ import {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
 } from "../consts";
-import type { GmailNotificationData, GoogleApiError } from "../types";
+import {
+  ALLOWED_EMAIL_MIME_TYPES,
+  type GmailNotificationData,
+  type GoogleApiError,
+} from "../types";
 import { getGlobalVar, setGlobalVar } from "./file-utils";
 
 import consola from "consola";
@@ -136,3 +140,49 @@ export const getThread = async (threadId: string): Promise<object | null> => {
     return null;
   }
 };
+
+export function extractEmailData(emailThread: any[]): string {
+  let extractedData = "";
+
+  for (const email of emailThread) {
+    extractedData += `Email Subject: ${
+      email.payload.headers.find((h: { name: string }) => h.name === "Subject")
+        ?.value || "N/A"
+    }\n`;
+    extractedData += `From: ${
+      email.payload.headers.find((h: { name: string }) => h.name === "From")
+        ?.value || "N/A"
+    }\n`;
+    extractedData += `To: ${
+      email.payload.headers.find((h: { name: string }) => h.name === "To")
+        ?.value || "N/A"
+    }\n`;
+    extractedData += `Date: ${
+      email.payload.headers.find((h: { name: string }) => h.name === "Date")
+        ?.value || "N/A"
+    }\n`;
+    extractedData += `Snippet:\n${email.snippet}\n`;
+
+    const attachments: string[] = [];
+    const processAttachments = (part: any) => {
+      if (ALLOWED_EMAIL_MIME_TYPES.includes(part.mimeType)) {
+        attachments.push(`- ${part.filename} (${part.mimeType})\n`);
+      }
+      if (part.parts) {
+        part.parts.forEach(processAttachments);
+      }
+    };
+
+    if (email.payload.parts) {
+      email.payload.parts.forEach(processAttachments);
+    }
+
+    if (attachments.length > 0) {
+      extractedData += `Attachments:\n${attachments.join("")}`;
+    }
+    extractedData += "\n";
+    extractedData += `----------------------------------------\n`; // Separator between emails
+  }
+
+  return extractedData;
+}
