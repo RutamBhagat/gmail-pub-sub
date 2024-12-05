@@ -94,9 +94,21 @@ export const webhookHandler: RequestHandler = async (req, res) => {
         return;
       }
 
+      const validationResult = emailThreadSchema.safeParse(threadData);
+      if (!validationResult.success) {
+        const errors = validationResult.error.errors
+          .map((e) => e.message)
+          .join(",");
+        res.status(400).json(errors);
+        return;
+      }
+
       setGlobalVar("threadData", threadData);
       consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
-      res.status(200).json(threadData);
+      const emailThread = validationResult.data.messages;
+      const extractedData = extractEmailData(emailThread);
+      res.status(200).json(extractedData);
+      return;
     } catch (error: unknown) {
       if (isGoogleApiError(error) && error.response?.status === 401) {
         const newToken = await refreshAccessToken();
@@ -125,20 +137,9 @@ export const webhookHandler: RequestHandler = async (req, res) => {
           return;
         }
 
-        const validationResult = emailThreadSchema.safeParse(threadData);
-        if (!validationResult.success) {
-          const errors = validationResult.error.errors
-            .map((e) => e.message)
-            .join(",");
-          res.status(400).json(errors);
-          return;
-        }
-
         setGlobalVar("threadData", threadData);
         consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
-        const emailThread = validationResult.data.messages;
-        const extractedData = extractEmailData(emailThread);
-        res.status(200).json(extractedData);
+        res.status(200).json(threadData);
         return;
       }
       throw error;
