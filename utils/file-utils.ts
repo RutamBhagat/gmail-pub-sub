@@ -10,10 +10,6 @@ if (!fs.existsSync(VARS_FILE)) {
   const initialData = {
     accessTokenStore: "",
     refreshTokenStore: "",
-    historyId: "",
-    emailAddress: "",
-    threadId: "",
-    threadData: {},
   };
   fs.writeFileSync(VARS_FILE, JSON.stringify(initialData, null, 4));
 }

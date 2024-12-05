@@ -4,38 +4,13 @@ import {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
 } from "../consts";
-import {
-  ALLOWED_EMAIL_MIME_TYPES,
-  type GmailNotificationData,
-  type GoogleApiError,
-} from "../types";
+import { ALLOWED_EMAIL_MIME_TYPES, type GoogleApiError } from "../types";
 import { getGlobalVar, setGlobalVar } from "./file-utils";
 
 import consola from "consola";
 import { google } from "googleapis";
 
 export const gmail = google.gmail("v1");
-
-// Utility Functions
-/**
- * Decodes and parses Gmail push notification payload from base64
- * @param encodedString - Base64 encoded notification data
- */
-export function decodeBase64ToJson(
-  encodedString:
-    | WithImplicitCoercion<string>
-    | { [Symbol.toPrimitive](hint: "string"): string }
-): GmailNotificationData | null {
-  try {
-    const decodedString = Buffer.from(encodedString, "base64").toString(
-      "utf-8"
-    );
-    return JSON.parse(decodedString);
-  } catch (error) {
-    consola.error("Error decoding base64 to JSON:", error);
-    return null;
-  }
-}
 
 /**
  * Refreshes the Google OAuth access token using the stored refresh token
@@ -91,9 +66,6 @@ export const watchInbox = async () => {
       }
     );
     consola.success("Watching Inbox:", res.data);
-    if (res.data.historyId) {
-      setGlobalVar("historyId", res.data.historyId);
-    }
   } catch (error) {
     consola.error("Error watching inbox:", error);
   }

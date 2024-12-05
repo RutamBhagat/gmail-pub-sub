@@ -1,5 +1,4 @@
 import {
-  decodeBase64ToJson,
   extractEmailData,
   getThread,
   gmail,
@@ -7,15 +6,12 @@ import {
   refreshAccessToken,
   watchInbox,
 } from "./../utils/index";
-import {
-  emailThreadSchema,
-  parsedPubSubMessageSchema,
-} from "../types/validations";
 import { getGlobalVar, setGlobalVar } from "../utils/file-utils";
 
 import type { GoogleProfile } from "../types";
 import type { RequestHandler } from "express";
 import consola from "consola";
+import { emailThreadSchema } from "../types/validations";
 
 // Added import
 
@@ -49,17 +45,6 @@ export const startWatchingHandler: RequestHandler = async (req, res) => {
   }
 };
 
-async function validateWebhookMessage(messageData: string) {
-  const decodedData = decodeBase64ToJson(messageData);
-  const parsedData = parsedPubSubMessageSchema.safeParse(decodedData);
-
-  if (!parsedData.success) {
-    throw new Error("Invalid message format");
-  }
-
-  return parsedData.data;
-}
-
 async function getLatestThreadId(accessToken: string) {
   const messagesResponse = await gmail.users.messages.list(
     {
@@ -85,8 +70,6 @@ async function getLatestThreadId(accessToken: string) {
 async function getThreadData(accessToken: string) {
   try {
     const threadId = await getLatestThreadId(accessToken);
-    setGlobalVar("threadId", threadId);
-
     const threadData = await getThread(threadId);
     if (!threadData) {
       throw new Error("Thread not found");
@@ -118,12 +101,6 @@ export const webhookHandler: RequestHandler = async (req, res) => {
       return;
     }
 
-    const { emailAddress, historyId } = await validateWebhookMessage(
-      req.body.message.data
-    );
-    setGlobalVar("emailAddress", emailAddress);
-    setGlobalVar("historyId", historyId);
-
     const accessToken = getGlobalVar("accessTokenStore");
     const threadData = await getThreadData(accessToken);
 
@@ -135,9 +112,6 @@ export const webhookHandler: RequestHandler = async (req, res) => {
       res.status(400).json(errors);
       return;
     }
-
-    setGlobalVar("threadData", threadData);
-    consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
     const emailThread = validationResult.data.messages;
     const extractedData = extractEmailData(emailThread);
     res.status(200).json(extractedData);

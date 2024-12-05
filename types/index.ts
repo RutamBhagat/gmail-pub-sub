@@ -4,11 +4,6 @@ export interface User {
   emails?: { value: string; verified?: boolean }[];
 }
 
-export interface GmailNotificationData {
-  emailAddress: string;
-  historyId: string;
-}
-
 export interface GoogleProfile extends User {
   accessToken?: string;
   refreshToken?: string;
