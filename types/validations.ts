@@ -70,3 +70,8 @@ export const emailThreadSchema = z.object({
   historyId: z.string(),
   messages: z.array(emailSchema),
 });
+
+export const parsedPubSubMessageSchema = z.object({
+  emailAddress: z.string(),
+  historyId: z.string(),
+});

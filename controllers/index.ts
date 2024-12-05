@@ -7,12 +7,17 @@ import {
   refreshAccessToken,
   watchInbox,
 } from "./../utils/index";
+import {
+  emailThreadSchema,
+  parsedPubSubMessageSchema,
+} from "../types/validations";
 import { getGlobalVar, setGlobalVar } from "../utils/file-utils";
 
 import type { GoogleProfile } from "../types";
 import type { RequestHandler } from "express";
 import consola from "consola";
-import { emailThreadSchema } from "../types/validations";
+
+// Added import
 
 // Request Handlers
 export const homeHandler: RequestHandler = (req, res) => {
@@ -44,109 +49,107 @@ export const startWatchingHandler: RequestHandler = async (req, res) => {
   }
 };
 
+async function validateWebhookMessage(messageData: string) {
+  const decodedData = decodeBase64ToJson(messageData);
+  const parsedData = parsedPubSubMessageSchema.safeParse(decodedData);
+
+  if (!parsedData.success) {
+    throw new Error("Invalid message format");
+  }
+
+  return parsedData.data;
+}
+
+async function getLatestThreadId(accessToken: string) {
+  const messagesResponse = await gmail.users.messages.list(
+    {
+      userId: "me",
+      q: "is:inbox",
+      maxResults: 1,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const threadId = messagesResponse.data.messages?.[0]?.threadId;
+  if (!threadId) {
+    throw new Error("No thread found");
+  }
+
+  return threadId;
+}
+
+async function getThreadData(accessToken: string) {
+  try {
+    const threadId = await getLatestThreadId(accessToken);
+    setGlobalVar("threadId", threadId);
+
+    const threadData = await getThread(threadId);
+    if (!threadData) {
+      throw new Error("Thread not found");
+    }
+
+    return threadData;
+  } catch (error) {
+    if (isGoogleApiError(error) && error.response?.status === 401) {
+      const newToken = await refreshAccessToken();
+      const threadId = await getLatestThreadId(newToken);
+      const threadData = await getThread(threadId);
+
+      if (!threadData) {
+        throw new Error("Thread not found");
+      }
+
+      return threadData;
+    }
+    throw error;
+  }
+}
+
 export const webhookHandler: RequestHandler = async (req, res) => {
   try {
     consola.info("Gmail Webhook Received");
 
-    const { message } = req.body;
-    if (!message?.data) {
-      consola.warn("No message data found");
+    if (!req.body.message?.data) {
       res.status(400).send("No message data");
       return;
     }
 
-    const decodedData = decodeBase64ToJson(message.data);
-    if (!decodedData || !decodedData.emailAddress || !decodedData.historyId) {
-      consola.warn("Decoded message is missing emailAddress or historyId.");
-      res.status(400).send("Invalid message format");
+    const { emailAddress, historyId } = await validateWebhookMessage(
+      req.body.message.data
+    );
+    setGlobalVar("emailAddress", emailAddress);
+    setGlobalVar("historyId", historyId);
+
+    const accessToken = getGlobalVar("accessTokenStore");
+    const threadData = await getThreadData(accessToken);
+
+    const validationResult = emailThreadSchema.safeParse(threadData);
+    if (!validationResult.success) {
+      const errors = validationResult.error.errors
+        .map((e) => e.message)
+        .join(",");
+      res.status(400).json(errors);
       return;
     }
 
-    setGlobalVar("emailAddress", decodedData.emailAddress);
-    setGlobalVar("historyId", decodedData.historyId);
-    consola.info("Decoded JSON Message:", decodedData);
-
-    try {
-      const messagesResponse = await gmail.users.messages.list(
-        {
-          userId: "me",
-          q: "is:inbox",
-          maxResults: 1,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${getGlobalVar("accessTokenStore")}`,
-          },
-        }
-      );
-
-      if (!messagesResponse.data.messages?.[0]?.threadId) {
-        res.status(404).send("No thread found");
-        return;
-      }
-
-      const threadId = messagesResponse.data.messages[0].threadId;
-      setGlobalVar("threadId", threadId);
-
-      const threadData = await getThread(threadId);
-      if (!threadData) {
-        res.status(404).send("Thread not found");
-        return;
-      }
-
-      const validationResult = emailThreadSchema.safeParse(threadData);
-      if (!validationResult.success) {
-        const errors = validationResult.error.errors
-          .map((e) => e.message)
-          .join(",");
-        res.status(400).json(errors);
-        return;
-      }
-
-      setGlobalVar("threadData", threadData);
-      consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
-      const emailThread = validationResult.data.messages;
-      const extractedData = extractEmailData(emailThread);
-      res.status(200).json(extractedData);
-      return;
-    } catch (error: unknown) {
-      if (isGoogleApiError(error) && error.response?.status === 401) {
-        const newToken = await refreshAccessToken();
-        const messagesResponse = await gmail.users.messages.list(
-          {
-            userId: "me",
-            q: "is:inbox",
-            maxResults: 1,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${newToken}`,
-            },
-          }
-        );
-
-        if (!messagesResponse.data.messages?.[0]?.threadId) {
-          res.status(404).send("No thread found");
-          return;
-        }
-
-        const threadId = messagesResponse.data.messages[0].threadId;
-        const threadData = await getThread(threadId);
-        if (!threadData) {
-          res.status(404).send("Thread not found");
-          return;
-        }
-
-        setGlobalVar("threadData", threadData);
-        consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
-        res.status(200).json(threadData);
-        return;
-      }
-      throw error;
-    }
+    setGlobalVar("threadData", threadData);
+    consola.log("Thread Data:", JSON.stringify(threadData, null, 2));
+    const emailThread = validationResult.data.messages;
+    const extractedData = extractEmailData(emailThread);
+    res.status(200).json(extractedData);
+    return;
   } catch (error) {
     consola.error("Error in webhook handler:", error);
-    res.status(500).send("Error processing Gmail notification");
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Error processing Gmail notification";
+    res.status(500).send(errorMessage);
+    return;
   }
 };
 

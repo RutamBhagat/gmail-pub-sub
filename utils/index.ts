@@ -181,7 +181,6 @@ export function extractEmailData(emailThread: any[]): string {
       extractedData += `Attachments:\n${attachments.join("")}`;
     }
     extractedData += "\n";
-    extractedData += `----------------------------------------\n`; // Separator between emails
   }
 
   return extractedData;
