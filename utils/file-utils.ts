@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
-const VARS_FILE = path.join(__dirname, "global-vars.json");
+const VARS_FILE = path.join(__dirname, "utils", "global-vars.json");
 
 /**
  * Initialize global variables file with default values

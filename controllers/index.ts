@@ -6,7 +6,7 @@ import {
   refreshAccessToken,
   watchInbox,
 } from "./../utils/index";
-import { getGlobalVar, setGlobalVar } from "../file-utils";
+import { getGlobalVar, setGlobalVar } from "../utils/file-utils";
 
 import type { GoogleProfile } from "../types";
 import type { RequestHandler } from "express";

@@ -5,7 +5,7 @@ import {
   GOOGLE_CLIENT_SECRET,
 } from "../consts";
 import type { GmailNotificationData, GoogleApiError } from "../types";
-import { getGlobalVar, setGlobalVar } from "../file-utils";
+import { getGlobalVar, setGlobalVar } from "./file-utils";
 
 import consola from "consola";
 import { google } from "googleapis";
