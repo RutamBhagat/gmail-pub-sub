@@ -8,41 +8,12 @@ import { google } from "googleapis";
 import passport from "passport";
 import session from "express-session";
 import { getGlobalVar, setGlobalVar } from "./file-utils";
-
-// Types & Interfaces
-interface User {
-  id?: string;
-  displayName?: string;
-  emails?: { value: string; verified?: boolean }[];
-}
-
-interface GmailNotificationData {
-  emailAddress: string;
-  historyId: string;
-}
-
-interface GoogleProfile extends User {
-  accessToken?: string;
-  refreshToken?: string;
-}
-
-interface GoogleApiError {
-  response?: {
-    status: number;
-  };
-}
-
-declare module "http" {
-  interface IncomingMessage {
-    rawBody?: Buffer;
-  }
-}
-
-declare module "express-session" {
-  interface SessionData {
-    user?: GoogleProfile;
-  }
-}
+import type {
+  GmailNotificationData,
+  GoogleApiError,
+  GoogleProfile,
+  User,
+} from "./types";
 
 // Constants
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
